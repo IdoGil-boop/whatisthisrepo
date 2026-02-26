@@ -50,6 +50,17 @@ curl -X POST http://localhost:8000/summarize \
 }
 ```
 
+### SSE Streaming Request
+
+```bash
+curl -X POST http://localhost:8000/summarize \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{"github_url": "https://github.com/psf/requests"}'
+```
+
+Returns a stream of `event: progress` events followed by `event: complete` with the full result.
+
 ### Error Response
 
 ```json
@@ -81,23 +92,27 @@ We use GitHub's Git Trees API to get the full file listing in a single call, the
 
 ### 2. File selection — a 10-tier priority system
 
-Not all files are equally useful for understanding a project. We rank files into 10 priority tiers: README is highest (it's the author's own description), followed by AI agent docs (CLAUDE.md, .cursorrules — often the best-documented part of modern repos), then manifests (package.json, pyproject.toml), and finally source files (entry points first, then API definitions, then core modules). Binary files are detected in two steps: first by extension (before fetching), then by content inspection (after fetching). We cap at 12–18 files total.
+Not all files are equally useful for understanding a project. We rank files into 10 priority tiers: README is highest (it's the author's own description), followed by AI agent docs (CLAUDE.md, .cursorrules — often the best-documented part of modern repos), then manifests (package.json, pyproject.toml), and finally source files (entry points first, then API definitions, then core modules). Binary files are detected in two steps: first by extension (before fetching), then by content inspection (after fetching). We cap at 18 files total.
 
 ### 3. Context management — fit the model to the repo, not the other way around
 
-Instead of cramming every repo into one model's context window, we auto-select the cheapest model that fits: Llama-3.1-8B for small repos (< 20k chars), Qwen3-32B for medium (< 90k), Llama-3.3-70B for large (< 140k). For repos that exceed 140k chars even after selection, a compaction waterfall progressively reduces detail while keeping breadth: first halve source excerpts, then keep only function signatures, then drop lowest-ranked files. README and agent docs are never dropped.
+Instead of cramming every repo into one model's context window, we auto-select the cheapest model that fits: Llama-3.1-8B for small repos (< 20k chars), Qwen3-32B for medium (< 90k), Llama-3.3-70B for large (< 140k). For repos that exceed 140k chars even after selection, a 7-step compaction waterfall progressively reduces detail while keeping breadth: (1) truncate oversized files, (2) reduce directory tree depth, (3) halve source excerpts, (4) keep only function signatures, (5) drop source files entirely, (6) compact agent docs, (7) compact README. The waterfall exits as soon as the digest fits within budget.
 
 ### 4. Caching — SHA-based with incremental updates
 
-Every Git commit has a unique SHA hash. We cache results keyed by repo + branch SHA — if the SHA hasn't changed, the repo hasn't changed, so we return the cached response instantly (no tree fetch, no file fetches, no LLM call). When the SHA does change, we diff the old and new trees and only re-fetch files whose content actually changed, reusing cached content for everything else.
+Every Git commit has a unique SHA hash. We cache results keyed by repo + branch SHA. On each request we fetch repo metadata and the latest branch SHA (two lightweight API calls). If the SHA matches the cache, we return the cached response instantly — skipping the tree walk, file fetches, and LLM call. When the SHA does change, we diff the old and new trees and only re-fetch files whose content actually changed, reusing cached content for everything else.
 
 ### 5. LLM output — strict JSON with retry
 
 We use Nebius AI Studio (`https://api.studio.nebius.com/v1/`) with low temperature (0.2) for deterministic output. The prompt enforces a strict JSON-only contract matching our response schema. If the LLM returns invalid JSON, we retry once with a repair instruction. If that also fails, we return a 502 error rather than passing bad data to the user.
 
-### 6. Error handling — no silent failures
+### 6. SSE streaming — real-time progress for long-running summarizations
 
-Every failure mode returns a structured JSON error with an appropriate HTTP status code: invalid URL (400), private repo or rate limit (403, with a message suggesting `GITHUB_TOKEN`), repo not found (404), empty repo with no parseable files (422), GitHub API down (503), timeouts (504). URLs are validated against a strict github.com allowlist to prevent SSRF.
+Summarizing a large repo can take 10+ seconds across GitHub fetches and LLM generation. Rather than leaving the client waiting on a silent HTTP request, we support Server-Sent Events (SSE) via content negotiation: send `Accept: text/event-stream` and the same `/summarize` endpoint streams `progress` events at each pipeline stage (fetching repo info, analyzing structure, fetching files, assembling digest, generating summary), followed by a `complete` event with the full result. Errors mid-stream are emitted as `event: error` (since the HTTP 200 has already been sent). Clients that don't send the SSE accept header get the standard JSON response as before.
+
+### 7. Error handling — no silent failures
+
+Every failure mode returns a structured JSON error with an appropriate HTTP status code: invalid URL (400), private repo or rate limit (403, with a message suggesting `GITHUB_TOKEN`), repo not found (404), empty repo with no parseable files (422), LLM failure (502), GitHub API down or timeout (503). URLs are validated against a strict github.com allowlist to prevent SSRF.
 
 ## Tech Stack
 
