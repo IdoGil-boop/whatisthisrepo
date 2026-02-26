@@ -21,7 +21,9 @@ Accepted URL formats:
 
 Any other domain or format is rejected (SSRF prevention).
 
-### Success Response (200)
+### Success Response — JSON (200)
+
+Default response when no `Accept: text/event-stream` header is sent.
 
 ```json
 {
@@ -37,7 +39,39 @@ Any other domain or format is rejected (SSRF prevention).
 | technologies | string[] | Main technologies, languages, and frameworks used   |
 | structure    | string   | Brief description of the project structure          |
 
-### Error Responses
+### Success Response — SSE Streaming (200)
+
+Activated by sending `Accept: text/event-stream` header. Returns a `text/event-stream` response with progress updates followed by the final result.
+
+```
+event: progress
+data: {"phase": "Fetching repository info...", "step": 1, "total_steps": 6}
+
+event: progress
+data: {"phase": "Analyzing repo structure (68 files found)", "step": 2, "total_steps": 6}
+
+event: progress
+data: {"phase": "Fetching file contents (18 files)...", "step": 3, "total_steps": 6}
+
+event: progress
+data: {"phase": "Assembling digest (56387 chars)", "step": 4, "total_steps": 6}
+
+event: progress
+data: {"phase": "Generating summary with Qwen/Qwen3-32B...", "step": 5, "total_steps": 6}
+
+event: complete
+data: {"summary": "...", "technologies": [...], "structure": "..."}
+```
+
+On error, an `error` event is emitted instead of `complete`:
+```
+event: error
+data: {"message": "Repository not found: no/exist"}
+```
+
+**Note:** SSE responses always return HTTP 200 since the stream starts before the pipeline runs. Errors are communicated via `event: error` within the stream, not via HTTP status codes.
+
+### Error Responses (JSON path)
 
 All errors return:
 ```json

@@ -19,9 +19,12 @@ Client → POST /summarize
 ## Component Responsibilities
 
 ### main.py — FastAPI Application
-- Single endpoint: `POST /summarize`
+- Single endpoint: `POST /summarize` with content negotiation
+  - Default: JSON response (unchanged behavior)
+  - `Accept: text/event-stream`: SSE streaming with progress events (steps 1–6)
 - Orchestrates the fetch → process → summarize pipeline
-- Error handling middleware for consistent error responses
+- Error handling middleware for consistent error responses (JSON path)
+- SSE path handles errors inline as `event: error` within the stream
 
 ### models.py — Data Models
 - `SummarizeRequest`: Pydantic model with github_url validation (strict regex)
