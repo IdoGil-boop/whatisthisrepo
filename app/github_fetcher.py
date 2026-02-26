@@ -29,6 +29,7 @@ async def get_client() -> httpx.AsyncClient:
         _client = httpx.AsyncClient(
             timeout=httpx.Timeout(GITHUB_TIMEOUT, connect=5.0, pool=5.0),
             headers=headers,
+            follow_redirects=True,
         )
     return _client
 
