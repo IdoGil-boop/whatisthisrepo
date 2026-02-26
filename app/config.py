@@ -44,7 +44,7 @@ NEBIUS_MODEL: Optional[str] = os.environ.get("NEBIUS_MODEL")
 # ---------------------------------------------------------------------------
 # Timeouts & caps
 # ---------------------------------------------------------------------------
-GITHUB_TIMEOUT: int = 30
+GITHUB_TIMEOUT: float = 30.0
 LLM_TIMEOUT: int = 60
 MAX_LINES: int = 250
 MAX_CHARS: int = 12_000
@@ -57,9 +57,9 @@ MAX_CACHE_SIZE: int = 50
 # Model selection tiers: (char_threshold, model_name)
 # ---------------------------------------------------------------------------
 MODEL_TIERS: list[tuple[int, str]] = [
-    (20_000, "Meta/Llama-3.1-8B-Instruct"),
+    (20_000, "meta-llama/Meta-Llama-3.1-8B-Instruct"),
     (90_000, "Qwen/Qwen3-32B"),
-    (140_000, "Meta/Llama-3.3-70B-Instruct"),
+    (140_000, "meta-llama/Llama-3.3-70B-Instruct"),
 ]
 
 # ---------------------------------------------------------------------------

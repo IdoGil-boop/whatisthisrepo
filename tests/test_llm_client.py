@@ -20,7 +20,7 @@ class TestSelectModel:
     def test_small_digest(self) -> None:
         from app.llm_client import select_model
 
-        assert select_model(5_000) == "Meta/Llama-3.1-8B-Instruct"
+        assert select_model(5_000) == "meta-llama/Meta-Llama-3.1-8B-Instruct"
 
     def test_medium_digest(self) -> None:
         from app.llm_client import select_model
@@ -30,12 +30,12 @@ class TestSelectModel:
     def test_large_digest(self) -> None:
         from app.llm_client import select_model
 
-        assert select_model(100_000) == "Meta/Llama-3.3-70B-Instruct"
+        assert select_model(100_000) == "meta-llama/Llama-3.3-70B-Instruct"
 
     def test_over_max_falls_back_to_largest(self) -> None:
         from app.llm_client import select_model
 
-        assert select_model(200_000) == "Meta/Llama-3.3-70B-Instruct"
+        assert select_model(200_000) == "meta-llama/Llama-3.3-70B-Instruct"
 
     def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("NEBIUS_MODEL", "custom-model")
@@ -111,7 +111,7 @@ class TestSummarize:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-        with patch("app.llm_client.AsyncOpenAI", return_value=mock_client):
+        with patch("app.llm_client._get_llm_client", return_value=mock_client):
             result = await summarize("some digest")
         assert result["summary"] == "A lib"
 
@@ -132,7 +132,7 @@ class TestSummarize:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(side_effect=[bad_response, good_response])
 
-        with patch("app.llm_client.AsyncOpenAI", return_value=mock_client):
+        with patch("app.llm_client._get_llm_client", return_value=mock_client):
             result = await summarize("some digest")
         assert result["summary"] == "OK"
 
@@ -147,7 +147,7 @@ class TestSummarize:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=bad_response)
 
-        with patch("app.llm_client.AsyncOpenAI", return_value=mock_client):
+        with patch("app.llm_client._get_llm_client", return_value=mock_client):
             with pytest.raises(LLMError):
                 await summarize("some digest")
 
@@ -163,7 +163,7 @@ class TestSummarize:
             )
         )
 
-        with patch("app.llm_client.AsyncOpenAI", return_value=mock_client):
+        with patch("app.llm_client._get_llm_client", return_value=mock_client):
             with pytest.raises(LLMError, match="LLM provider error"):
                 await summarize("some digest")
 
@@ -176,6 +176,6 @@ class TestSummarize:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-        with patch("app.llm_client.AsyncOpenAI", return_value=mock_client):
+        with patch("app.llm_client._get_llm_client", return_value=mock_client):
             with pytest.raises(LLMError, match="no response choices"):
                 await summarize("some digest")

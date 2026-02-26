@@ -1,4 +1,4 @@
-"""Nebius Token Factory LLM client — model selection, prompting, JSON validation."""
+"""Nebius AI Studio LLM client — model selection, prompting, JSON validation."""
 
 from __future__ import annotations
 
@@ -15,7 +15,35 @@ from app.models import LLMError
 
 logger = logging.getLogger(__name__)
 
-_BASE_URL = "https://api.tokenfactory.nebius.com/v1/"
+_BASE_URL = "https://api.studio.nebius.com/v1/"
+
+# ---------------------------------------------------------------------------
+# Shared OpenAI client (module-level singleton for connection pooling)
+# ---------------------------------------------------------------------------
+
+_client: AsyncOpenAI | None = None
+
+
+def _get_llm_client() -> AsyncOpenAI:
+    """Return a shared AsyncOpenAI client, creating one if needed."""
+    global _client  # noqa: PLW0603
+    if _client is None:
+        _client = AsyncOpenAI(
+            base_url=_BASE_URL,
+            api_key=NEBIUS_API_KEY,
+            timeout=LLM_TIMEOUT,
+            max_retries=2,
+        )
+    return _client
+
+
+async def close_llm_client() -> None:
+    """Close the shared OpenAI client (called on app shutdown)."""
+    global _client  # noqa: PLW0603
+    if _client is not None:
+        await _client.close()
+        _client = None
+
 
 SYSTEM_PROMPT = (
     "You are a code repository analyst. Given a REPO DIGEST, produce a JSON object "
@@ -90,7 +118,7 @@ def _parse_and_validate(raw: str) -> Optional[dict]:
 async def summarize(digest: str) -> dict:
     """Send digest to LLM, parse response, retry once on failure."""
     model = select_model(len(digest))
-    client = AsyncOpenAI(base_url=_BASE_URL, api_key=NEBIUS_API_KEY)
+    client = _get_llm_client()
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -104,10 +132,9 @@ async def summarize(digest: str) -> dict:
             messages=messages,
             temperature=0.2,
             max_tokens=2000,
-            timeout=LLM_TIMEOUT,
             response_format=_RESPONSE_FORMAT,
         )
-    except (openai.APIError, openai.APITimeoutError) as exc:
+    except (openai.APIError, openai.APIConnectionError) as exc:
         raise LLMError(f"LLM provider error: {exc}") from exc
 
     if not resp.choices:
@@ -129,10 +156,9 @@ async def summarize(digest: str) -> dict:
             messages=messages,
             temperature=0.2,
             max_tokens=2000,
-            timeout=LLM_TIMEOUT,
             response_format=_RESPONSE_FORMAT,
         )
-    except (openai.APIError, openai.APITimeoutError) as exc:
+    except (openai.APIError, openai.APIConnectionError) as exc:
         raise LLMError(f"LLM provider error: {exc}") from exc
 
     if not resp.choices:

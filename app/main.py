@@ -20,7 +20,7 @@ from app.github_fetcher import (
     fetch_repo_tree,
     parse_github_url,
 )
-from app.llm_client import select_model, summarize
+from app.llm_client import close_llm_client, select_model, summarize
 from app.models import (
     EmptyRepoError,
     ErrorResponse,
@@ -37,9 +37,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Startup/shutdown lifecycle — closes the shared httpx client on exit."""
+    """Startup/shutdown lifecycle — closes shared clients on exit."""
     yield
     await close_client()
+    await close_llm_client()
 
 
 app = FastAPI(title="GitHub Repo Summarizer", lifespan=lifespan)

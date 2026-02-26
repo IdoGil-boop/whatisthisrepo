@@ -23,7 +23,13 @@ async def get_client() -> httpx.AsyncClient:
     """Return a shared httpx client, creating one if needed."""
     global _client  # noqa: PLW0603
     if _client is None or _client.is_closed:
-        _client = httpx.AsyncClient(timeout=GITHUB_TIMEOUT)
+        headers: dict[str, str] = {"Accept": "application/json"}
+        if GITHUB_TOKEN:
+            headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+        _client = httpx.AsyncClient(
+            timeout=httpx.Timeout(GITHUB_TIMEOUT, connect=5.0, pool=5.0),
+            headers=headers,
+        )
     return _client
 
 
@@ -68,8 +74,8 @@ async def fetch_repo_info(owner: str, repo: str) -> dict:
     url = f"{_API_BASE}/repos/{owner}/{repo}"
     client = await get_client()
     try:
-        resp = await client.get(url, headers=_make_headers())
-    except (httpx.TimeoutException, httpx.ConnectError) as exc:
+        resp = await client.get(url)
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
         raise GitHubError(503, f"GitHub API unavailable: {exc}") from exc
     if resp.status_code != 200:
         raise _map_github_error(resp.status_code, owner, repo)
@@ -88,8 +94,8 @@ async def fetch_branch_sha(owner: str, repo: str, branch: str) -> str:
     url = f"{_API_BASE}/repos/{owner}/{repo}/commits/{branch}"
     client = await get_client()
     try:
-        resp = await client.get(url, headers=_make_headers())
-    except (httpx.TimeoutException, httpx.ConnectError) as exc:
+        resp = await client.get(url)
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
         raise GitHubError(503, f"GitHub API unavailable: {exc}") from exc
     if resp.status_code != 200:
         raise _map_github_error(resp.status_code, owner, repo)
@@ -101,8 +107,8 @@ async def fetch_repo_tree(owner: str, repo: str, sha: str) -> list[dict]:
     url = f"{_API_BASE}/repos/{owner}/{repo}/git/trees/{sha}?recursive=1"
     client = await get_client()
     try:
-        resp = await client.get(url, headers=_make_headers())
-    except (httpx.TimeoutException, httpx.ConnectError) as exc:
+        resp = await client.get(url)
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
         raise GitHubError(503, f"GitHub API unavailable: {exc}") from exc
     if resp.status_code != 200:
         raise _map_github_error(resp.status_code, owner, repo)
@@ -117,8 +123,8 @@ async def fetch_file_content(owner: str, repo: str, path: str, ref: str) -> byte
     url = f"{_RAW_BASE}/{owner}/{repo}/{ref}/{path}"
     client = await get_client()
     try:
-        resp = await client.get(url, headers=_make_headers())
-    except (httpx.TimeoutException, httpx.ConnectError) as exc:
+        resp = await client.get(url)
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
         raise GitHubError(503, f"GitHub API unavailable: {exc}") from exc
     if resp.status_code != 200:
         raise _map_github_error(resp.status_code, owner, repo)
@@ -128,14 +134,6 @@ async def fetch_file_content(owner: str, repo: str, path: str, ref: str) -> byte
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_headers() -> dict[str, str]:
-    """Build request headers, including auth if GITHUB_TOKEN is set."""
-    headers: dict[str, str] = {"Accept": "application/json"}
-    if GITHUB_TOKEN:
-        headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
-    return headers
 
 
 def _map_github_error(status_code: int, owner: str, repo: str) -> GitHubError:
