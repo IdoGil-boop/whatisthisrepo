@@ -21,7 +21,7 @@ pip install -r requirements.txt
 
 | Variable         | Required | Description                                      |
 |------------------|----------|--------------------------------------------------|
-| `NEBIUS_API_KEY` | Yes      | Nebius Token Factory API key                     |
+| `NEBIUS_API_KEY` | Yes      | Nebius AI Studio API key                         |
 | `GITHUB_TOKEN`   | No       | GitHub personal access token (raises rate limit from 60 to 5,000 req/hr) |
 | `NEBIUS_MODEL`   | No       | Override LLM model name (default: auto-selected by digest size; see tiers below) |
 
@@ -93,7 +93,7 @@ Every Git commit has a unique SHA hash. We cache results keyed by repo + branch 
 
 ### 5. LLM output — strict JSON with retry
 
-We use Nebius Token Factory (`https://api.tokenfactory.nebius.com/v1/`) with low temperature (0.2) for deterministic output. The prompt enforces a strict JSON-only contract matching our response schema. If the LLM returns invalid JSON, we retry once with a repair instruction. If that also fails, we return a 502 error rather than passing bad data to the user.
+We use Nebius AI Studio (`https://api.studio.nebius.com/v1/`) with low temperature (0.2) for deterministic output. The prompt enforces a strict JSON-only contract matching our response schema. If the LLM returns invalid JSON, we retry once with a repair instruction. If that also fails, we return a 502 error rather than passing bad data to the user.
 
 ### 6. Error handling — no silent failures
 
