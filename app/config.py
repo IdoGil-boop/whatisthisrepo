@@ -2,6 +2,8 @@
 
 import logging
 import os
+import signal
+import sys
 from typing import Optional
 
 # ---------------------------------------------------------------------------
@@ -16,6 +18,26 @@ logging.basicConfig(
 # Environment variables
 # ---------------------------------------------------------------------------
 NEBIUS_API_KEY: str = os.environ["NEBIUS_API_KEY"]  # fail-fast if missing
+_PLACEHOLDER_KEYS = {"your-key", "your-api-key", "test-key", "changeme", "xxx", "CHANGE_ME"}
+if not NEBIUS_API_KEY or NEBIUS_API_KEY in _PLACEHOLDER_KEYS or len(NEBIUS_API_KEY) < 20:
+    print(
+        "\n  ERROR: NEBIUS_API_KEY is not set to a real API key.\n"
+        "  Get one at https://studio.nebius.com/ and run:\n\n"
+        "    export NEBIUS_API_KEY=<your-real-key>\n",
+        file=sys.stderr,
+    )
+    # In uvicorn --reload mode, also kill the parent reloader process
+    # so the terminal gets control back instead of the reloader hanging.
+    try:
+        import subprocess as _sp
+
+        ppid = os.getppid()
+        _r = _sp.run(["ps", "-p", str(ppid), "-o", "command="], capture_output=True, text=True)
+        if "--reload" in _r.stdout and "uvicorn" in _r.stdout:
+            os.kill(ppid, signal.SIGTERM)
+    except Exception:
+        pass
+    os._exit(1)
 GITHUB_TOKEN: Optional[str] = os.environ.get("GITHUB_TOKEN")
 NEBIUS_MODEL: Optional[str] = os.environ.get("NEBIUS_MODEL")
 
