@@ -28,7 +28,8 @@ pip install -r requirements.txt
 ## Run
 
 ```bash
-NEBIUS_API_KEY=your-key uvicorn app.main:app --reload --port 8000
+export NEBIUS_API_KEY=<your-real-key>  # get one at https://studio.nebius.com/
+uvicorn app.main:app --reload --port 8000
 ```
 
 ## Example Request

@@ -19,7 +19,7 @@ api_key = os.environ["NEBIUS_API_KEY"]  # GOOD — fail fast if missing
 ```
 
 Environment variables:
-- `NEBIUS_API_KEY` — required, validated at startup
+- `NEBIUS_API_KEY` — required, validated at startup (rejects placeholders like `"your-key"` and keys shorter than 20 chars; prints clean error and exits immediately)
 - `GITHUB_TOKEN` — optional, sent as `Authorization: Bearer` header when present
 - `NEBIUS_MODEL` — optional, overrides default model
 
