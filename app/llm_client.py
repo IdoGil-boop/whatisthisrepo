@@ -35,6 +35,8 @@ REPAIR_PROMPT = (
     "structure (string). No markdown, no extra keys."
 )
 
+_RESPONSE_FORMAT = {"type": "json_object"}
+
 
 # ---------------------------------------------------------------------------
 # Model selection
@@ -103,6 +105,7 @@ async def summarize(digest: str) -> dict:
             temperature=0.2,
             max_tokens=2000,
             timeout=LLM_TIMEOUT,
+            response_format=_RESPONSE_FORMAT,
         )
     except (openai.APIError, openai.APITimeoutError) as exc:
         raise LLMError(f"LLM provider error: {exc}") from exc
@@ -110,12 +113,13 @@ async def summarize(digest: str) -> dict:
     if not resp.choices:
         raise LLMError("LLM returned no response choices")
     raw = resp.choices[0].message.content or ""
+    logger.debug("LLM raw response (attempt 1): %.500s", raw)
     result = _parse_and_validate(raw)
     if result is not None:
         return result
 
     # Retry once with repair prompt
-    logger.warning("LLM response invalid, retrying with repair prompt")
+    logger.warning("LLM response invalid, retrying with repair prompt. raw=%.300s", raw)
     messages.append({"role": "assistant", "content": raw})
     messages.append({"role": "user", "content": REPAIR_PROMPT})
 
@@ -126,6 +130,7 @@ async def summarize(digest: str) -> dict:
             temperature=0.2,
             max_tokens=2000,
             timeout=LLM_TIMEOUT,
+            response_format=_RESPONSE_FORMAT,
         )
     except (openai.APIError, openai.APITimeoutError) as exc:
         raise LLMError(f"LLM provider error: {exc}") from exc
@@ -133,8 +138,10 @@ async def summarize(digest: str) -> dict:
     if not resp.choices:
         raise LLMError("LLM returned no response choices")
     raw = resp.choices[0].message.content or ""
+    logger.debug("LLM raw response (attempt 2): %.500s", raw)
     result = _parse_and_validate(raw)
     if result is not None:
         return result
 
+    logger.error("LLM failed after retry. raw=%.500s", raw)
     raise LLMError("LLM failed to produce a valid summary after retry")

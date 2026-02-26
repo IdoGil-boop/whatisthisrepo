@@ -58,7 +58,7 @@ MAX_CACHE_SIZE: int = 50
 # ---------------------------------------------------------------------------
 MODEL_TIERS: list[tuple[int, str]] = [
     (20_000, "Meta/Llama-3.1-8B-Instruct"),
-    (90_000, "Qwen3-32B"),
+    (90_000, "Qwen/Qwen3-32B"),
     (140_000, "Meta/Llama-3.3-70B-Instruct"),
 ]
 

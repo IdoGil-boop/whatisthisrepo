@@ -25,7 +25,7 @@ class TestSelectModel:
     def test_medium_digest(self) -> None:
         from app.llm_client import select_model
 
-        assert select_model(50_000) == "Qwen3-32B"
+        assert select_model(50_000) == "Qwen/Qwen3-32B"
 
     def test_large_digest(self) -> None:
         from app.llm_client import select_model

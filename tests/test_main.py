@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -241,3 +242,219 @@ class TestHappyPath:
             assert resp2.json()["summary"] == "Cached"
             # LLM should only be called once
             assert mock_llm.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# SSE streaming
+# ---------------------------------------------------------------------------
+
+
+def _parse_sse(text: str) -> list[dict]:
+    """Parse SSE text into a list of {event, data} dicts."""
+    events = []
+    current_event = None
+    current_data = None
+    for line in text.splitlines():
+        if line.startswith("event: "):
+            current_event = line[len("event: ") :]
+        elif line.startswith("data: "):
+            current_data = json.loads(line[len("data: ") :])
+        elif line == "" and current_event is not None:
+            events.append({"event": current_event, "data": current_data})
+            current_event = None
+            current_data = None
+    # Handle trailing event without final blank line
+    if current_event is not None and current_data is not None:
+        events.append({"event": current_event, "data": current_data})
+    return events
+
+
+SSE_HEADERS = {"accept": "text/event-stream"}
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache():
+    """Clear the in-memory cache between tests to prevent leakage."""
+    from app.main import _cache
+
+    _cache.clear()
+    yield
+    _cache.clear()
+
+
+class TestSSEStreaming:
+    """SSE progress streaming tests."""
+
+    async def test_sse_success_emits_progress_and_complete(self, client) -> None:
+        """Successful SSE stream should have progress events then a complete event."""
+        with (
+            patch("app.main.fetch_repo_info", new_callable=AsyncMock) as mock_info,
+            patch("app.main.fetch_branch_sha", new_callable=AsyncMock) as mock_sha,
+            patch("app.main.fetch_repo_tree", new_callable=AsyncMock) as mock_tree,
+            patch("app.main.discover_files") as mock_disc,
+            patch("app.main.select_files") as mock_sel,
+            patch("app.main.fetch_and_assemble", new_callable=AsyncMock) as mock_asm,
+            patch("app.main.summarize", new_callable=AsyncMock) as mock_llm,
+            patch("app.main.select_model") as mock_model,
+        ):
+            mock_info.return_value = {
+                "description": "Lib",
+                "language": "Python",
+                "default_branch": "main",
+                "stargazers_count": 100,
+                "forks_count": 10,
+            }
+            mock_sha.return_value = "sha1"
+            mock_tree.return_value = [
+                {"path": "README.md", "type": "blob", "size": 50, "sha": "r1"}
+            ]
+            mock_disc.return_value = (
+                [{"path": "README.md", "rank": 1, "size": 50, "sha": "r1"}],
+                [],
+            )
+            mock_sel.return_value = [{"path": "README.md", "rank": 1, "size": 50, "sha": "r1"}]
+            mock_asm.return_value = ("digest text", {"README.md": "# Hello"})
+            mock_model.return_value = "Qwen/Qwen3-32B"
+            mock_llm.return_value = {
+                "summary": "A library",
+                "technologies": ["Python"],
+                "structure": "flat",
+            }
+            resp = await client.post(
+                "/summarize",
+                json={"github_url": "https://github.com/psf/requests"},
+                headers=SSE_HEADERS,
+            )
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        events = _parse_sse(resp.text)
+
+        # Should have progress events (steps 1-5) + complete
+        progress_events = [e for e in events if e["event"] == "progress"]
+        complete_events = [e for e in events if e["event"] == "complete"]
+        assert len(progress_events) == 5
+        assert len(complete_events) == 1
+
+        # Verify step numbers are sequential 1-5
+        steps = [e["data"]["step"] for e in progress_events]
+        assert steps == [1, 2, 3, 4, 5]
+
+        # All progress events should have total_steps
+        for e in progress_events:
+            assert e["data"]["total_steps"] == 6
+
+        # Complete event should contain the summary
+        complete_data = complete_events[0]["data"]
+        assert complete_data["summary"] == "A library"
+        assert complete_data["technologies"] == ["Python"]
+
+    async def test_sse_error_emits_error_event(self, client) -> None:
+        """Errors during SSE streaming should emit an error event."""
+        from app.models import GitHubError
+
+        with patch("app.main.fetch_repo_info", new_callable=AsyncMock) as mock:
+            mock.side_effect = GitHubError(404, "Repository not found: no/exist")
+            resp = await client.post(
+                "/summarize",
+                json={"github_url": "https://github.com/no/exist"},
+                headers=SSE_HEADERS,
+            )
+
+        # SSE always returns 200 (streaming started), error is in the event
+        assert resp.status_code == 200
+        events = _parse_sse(resp.text)
+        error_events = [e for e in events if e["event"] == "error"]
+        assert len(error_events) == 1
+        assert "not found" in error_events[0]["data"]["message"].lower()
+
+    async def test_sse_llm_error_emits_error_event(self, client) -> None:
+        """LLM errors during SSE streaming should emit an error event."""
+        from app.models import LLMError
+
+        with (
+            patch("app.main.fetch_repo_info", new_callable=AsyncMock) as mock_info,
+            patch("app.main.fetch_branch_sha", new_callable=AsyncMock) as mock_sha,
+            patch("app.main.fetch_repo_tree", new_callable=AsyncMock) as mock_tree,
+            patch("app.main.discover_files") as mock_disc,
+            patch("app.main.select_files") as mock_sel,
+            patch("app.main.fetch_and_assemble", new_callable=AsyncMock) as mock_asm,
+            patch("app.main.summarize", new_callable=AsyncMock) as mock_llm,
+            patch("app.main.select_model") as mock_model,
+        ):
+            mock_info.return_value = {
+                "description": "x",
+                "language": "Python",
+                "default_branch": "main",
+                "stargazers_count": 0,
+                "forks_count": 0,
+            }
+            mock_sha.return_value = "abc123"
+            mock_tree.return_value = [
+                {"path": "README.md", "type": "blob", "size": 10, "sha": "r1"}
+            ]
+            mock_disc.return_value = (
+                [{"path": "README.md", "rank": 1, "size": 10, "sha": "r1"}],
+                [],
+            )
+            mock_sel.return_value = [{"path": "README.md", "rank": 1, "size": 10, "sha": "r1"}]
+            mock_asm.return_value = ("digest", {})
+            mock_model.return_value = "Qwen/Qwen3-32B"
+            mock_llm.side_effect = LLMError("LLM failed")
+            resp = await client.post(
+                "/summarize",
+                json={"github_url": "https://github.com/any/repo"},
+                headers=SSE_HEADERS,
+            )
+
+        assert resp.status_code == 200
+        events = _parse_sse(resp.text)
+        # Should have some progress events before the error
+        progress_events = [e for e in events if e["event"] == "progress"]
+        assert len(progress_events) >= 1
+        error_events = [e for e in events if e["event"] == "error"]
+        assert len(error_events) == 1
+        assert "LLM failed" in error_events[0]["data"]["message"]
+
+    async def test_no_accept_header_returns_json(self, client) -> None:
+        """Without Accept: text/event-stream, should return normal JSON."""
+        with (
+            patch("app.main.fetch_repo_info", new_callable=AsyncMock) as mock_info,
+            patch("app.main.fetch_branch_sha", new_callable=AsyncMock) as mock_sha,
+            patch("app.main.fetch_repo_tree", new_callable=AsyncMock) as mock_tree,
+            patch("app.main.discover_files") as mock_disc,
+            patch("app.main.select_files") as mock_sel,
+            patch("app.main.fetch_and_assemble", new_callable=AsyncMock) as mock_asm,
+            patch("app.main.summarize", new_callable=AsyncMock) as mock_llm,
+        ):
+            mock_info.return_value = {
+                "description": "Lib",
+                "language": "Python",
+                "default_branch": "main",
+                "stargazers_count": 100,
+                "forks_count": 10,
+            }
+            mock_sha.return_value = "sha1"
+            mock_tree.return_value = [
+                {"path": "README.md", "type": "blob", "size": 50, "sha": "r1"}
+            ]
+            mock_disc.return_value = (
+                [{"path": "README.md", "rank": 1, "size": 50, "sha": "r1"}],
+                [],
+            )
+            mock_sel.return_value = [{"path": "README.md", "rank": 1, "size": 50, "sha": "r1"}]
+            mock_asm.return_value = ("digest text", {})
+            mock_llm.return_value = {
+                "summary": "A library",
+                "technologies": ["Python"],
+                "structure": "flat",
+            }
+            resp = await client.post(
+                "/summarize",
+                json={"github_url": "https://github.com/psf/requests"},
+            )
+
+        assert resp.status_code == 200
+        assert "application/json" in resp.headers["content-type"]
+        body = resp.json()
+        assert body["summary"] == "A library"
