@@ -5,7 +5,8 @@
 Only allow requests to `github.com`. The URL parser must:
 - Validate scheme is `https`
 - Validate host is exactly `github.com`
-- Reject any other domains, IP addresses, or redirect targets
+- Reject any other domains, IP addresses, or embedded credentials
+- GitHub 301 redirects (renamed/transferred repos) are followed safely via `follow_redirects=True` on the httpx client — redirects stay within `api.github.com`
 - Reject URLs with embedded credentials (`user:pass@host`)
 
 ## Secret Management

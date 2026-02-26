@@ -36,7 +36,7 @@ Client → POST /summarize
 - `fetch_repo_info(owner, repo)`: Gets repo metadata (description, language, default branch)
 - `fetch_repo_tree(owner, repo)`: Gets full recursive file tree via Git Trees API (`GET /repos/{owner}/{repo}/git/trees/{sha}?recursive=1`) — single call for entire directory listing
 - `fetch_file_content(owner, repo, path)`: Gets raw file content for selected files only
-- Uses a shared httpx async client singleton (lazy-initialized, closed on shutdown) with timeout and transport error handling
+- Uses a shared httpx async client singleton (lazy-initialized, closed on shutdown) with timeout, transport error handling, and `follow_redirects=True` for renamed/transferred repos
 - Sends `Authorization: Bearer` header when `GITHUB_TOKEN` is set
 
 ### repo_processor.py — Content Selection & Assembly
@@ -49,8 +49,8 @@ Client → POST /summarize
 - Applies compaction waterfall if digest exceeds model's context budget
 - Raises `EmptyRepoError` if no parseable files remain after filtering
 
-### llm_client.py — Nebius Token Factory Client
-- OpenAI SDK with `base_url="https://api.tokenfactory.nebius.com/v1/"` and `api_key` from env
+### llm_client.py — Nebius AI Studio Client
+- OpenAI SDK with `base_url="https://api.studio.nebius.com/v1/"` and `api_key` from env
 - Auto-selects model tier by digest size (small/medium/large). `NEBIUS_MODEL` overrides. See [LLM_PROMPTING.md](LLM_PROMPTING.md).
 - System prompt enforces strict JSON-only output
 - Parses and validates LLM output against schema
